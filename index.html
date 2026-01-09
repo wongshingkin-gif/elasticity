@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>價格需求彈性與收入：自由調整與彈性計算</title>
+    <style>
+        body {
+            font-family: "Microsoft JhengHei", Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        h1 { color: #2c3e50; margin-bottom: 5px; }
+        p.subtitle { color: #666; margin-bottom: 20px; text-align: center; }
+
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .controls {
+            flex: 1;
+            min-width: 350px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .canvas-container {
+            flex: 2;
+            min-width: 500px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            position: relative;
+        }
+
+        canvas {
+            border-left: 2px solid #333;
+            border-bottom: 2px solid #333;
+            background: #fff;
+        }
+
+        .input-group { margin-bottom: 20px; }
+        
+        label { 
+            display: flex; 
+            justify-content: space-between; 
+            margin-bottom: 8px; 
+            font-weight: bold; 
+            color: #2c3e50;
+        }
+        
+        input[type=range] { width: 100%; cursor: pointer; }
+
+        /* 數據顯示區塊 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+        .stat-item {
+            background: #fff;
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+
+        /* 彈性計算結果區塊 */
+        .elasticity-box {
+            background: #eaf2f8;
+            border-left: 5px solid #3498db;
+            padding: 15px;
+            margin-top: 10px;
+            border-radius: 4px;
+        }
+        .elasticity-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #2980b9;
+        }
+        .elasticity-desc {
+            font-size: 0.9em;
+            color: #555;
+            margin-top: 5px;
+        }
+
+        /* 總收入結果區塊 */
+        .result-box {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            text-align: center;
+            font-size: 1.1em;
+            transition: background-color 0.3s ease;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+            font-size: 0.9em;
+            background: #fff;
+            padding: 10px 20px;
+            border-radius: 20px;
+            border: 1px solid #eee;
+        }
+        .legend-item { display: flex; align-items: center; }
+        .color-box { width: 16px; height: 16px; margin-right: 6px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+    <h1>需求彈性分析工具</h1>
+    <p class="subtitle">自由調整 P1 與 P2，觀察兩點之間的彈性係數與總收入變化</p>
+
+    <div class="container">
+        <div class="controls">
+            
+            <div class="input-group">
+                <label><span>原本價格 (P1)</span> <span>$ <span id="val-p1"></span></span></label>
+                <input type="range" id="price1" min="5" max="95" value="30" step="5">
+            </div>
+
+            <div class="input-group">
+                <label><span>新價格 (P2)</span> <span>$ <span id="val-p2"></span></span></label>
+                <input type="range" id="price2" min="5" max="95" value="70" step="5">
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-item">Q1: <b id="res-q1"></b></div>
+                <div class="stat-item">Q2: <b id="res-q2"></b></div>
+                <div class="stat-item">TR1: $<span id="res-tr1"></span></div>
+                <div class="stat-item">TR2: $<span id="res-tr2"></span></div>
+            </div>
+
+            <div class="elasticity-box">
+                <div>區間需求彈性 (Ed):</div>
+                <div id="ed-value" class="elasticity-value">--</div>
+                <div id="ed-desc" class="elasticity-desc">請調整價格</div>
+            </div>
+
+            <div id="final-result" class="result-box">計算中...</div>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="elasticityChart" width="600" height="450"></canvas>
+            
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="color-box" style="background-color: rgba(46, 204, 113, 0.7)"></div>
+                    <span>收入增加 (+)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="color-box" style="background-color: rgba(231, 76, 60, 0.7)"></div>
+                    <span>收入減少 (-)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('elasticityChart');
+        const ctx = canvas.getContext('2d');
+        
+        // 畫布參數
+        const paddingLeft = 60;
+        const paddingBottom = 40;
+        const paddingTop = 30;
+        const paddingRight = 30;
+        const width = canvas.width - paddingLeft - paddingRight;
+        const height = canvas.height - paddingBottom - paddingTop;
+        const maxQ = 100;
+        const maxP = 100;
+
+        // DOM 元素
+        const p1Input = document.getElementById('price1');
+        const p2Input = document.getElementById('price2');
+        const elems = {
+            p1: document.getElementById('val-p1'),
+            p2: document.getElementById('val-p2'),
+            q1: document.getElementById('res-q1'),
+            q2: document.getElementById('res-q2'),
+            tr1: document.getElementById('res-tr1'),
+            tr2: document.getElementById('res-tr2'),
+            edVal: document.getElementById('ed-value'),
+            edDesc: document.getElementById('ed-desc'),
+            result: document.getElementById('final-result')
+        };
+
+        function init() {
+            p1Input.addEventListener('input', update);
+            p2Input.addEventListener('input', update);
+            update();
+        }
+
+        function update() {
+            const P1 = parseInt(p1Input.value);
+            const P2 = parseInt(p2Input.value);
+            const Q1 = maxQ - P1;
+            const Q2 = maxQ - P2;
+            const TR1 = P1 * Q1;
+            const TR2 = P2 * Q2;
+
+            // 更新基本數值
+            elems.p1.textContent = P1;
+            elems.p2.textContent = P2;
+            elems.q1.textContent = Q1;
+            elems.q2.textContent = Q2;
+            elems.tr1.textContent = TR1;
+            elems.tr2.textContent = TR2;
+
+            // 計算彈性與分析
+            calculateElasticity(P1, Q1, P2, Q2);
+            analyzeRevenue(TR1, TR2);
+
+            // 繪圖
+            drawChart(P1, Q1, P2, Q2);
+        }
+
+        function calculateElasticity(p1, q1, p2, q2) {
+            if (p1 === p2) {
+                elems.edVal.textContent = "-";
+                elems.edDesc.textContent = "價格無變動";
+                return;
+            }
+
+            // 中點公式 (Arc Elasticity)
+            // Ed = (|deltaQ| / avgQ) / (|deltaP| / avgP)
+            const deltaQ = Math.abs(q2 - q1);
+            const avgQ = (q1 + q2) / 2;
+            const deltaP = Math.abs(p2 - p1);
+            const avgP = (p1 + p2) / 2;
+
+            const pctChangeQ = deltaQ / avgQ;
+            const pctChangeP = deltaP / avgP;
+            
+            const ped = pctChangeQ / pctChangeP;
+            const pedFixed = ped.toFixed(2);
+
+            elems.edVal.textContent = pedFixed;
+
+            let type = "";
+            if (ped > 1) {
+                type = "彈性 > 1 (Elastic)";
+                elems.edDesc.style.color = "#e67e22"; // 橘色
+            } else if (ped < 1) {
+                type = "彈性 < 1 (Inelastic)";
+                elems.edDesc.style.color = "#27ae60"; // 綠色
+            } else {
+                type = "彈性 = 1 (Unitary)";
+                elems.edDesc.style.color = "#333";
+            }
+            elems.edDesc.textContent = type;
+        }
+
+        function analyzeRevenue(tr1, tr2) {
+            const diff = tr2 - tr1;
+            let msg = "";
+            let color = "";
+            
+            if (diff > 0) {
+                msg = `總收入增加 $${diff}`;
+                color = "#d4edda"; 
+                elems.result.style.color = "#155724";
+            } else if (diff < 0) {
+                msg = `總收入減少 $${Math.abs(diff)}`;
+                color = "#f8d7da"; 
+                elems.result.style.color = "#721c24";
+            } else {
+                msg = `總收入不變`;
+                color = "#fff3cd"; 
+                elems.result.style.color = "#856404";
+            }
+            elems.result.innerHTML = msg;
+            elems.result.style.backgroundColor = color;
+        }
+
+        // 座標轉換
+        function toX(q) { return paddingLeft + (q / maxQ) * width; }
+        function toY(p) { return canvas.height - paddingBottom - (p / maxP) * height; }
+
+        function drawChart(p1, q1, p2, q2) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawAxesLabels();
+
+            // 需求曲線
+            ctx.beginPath();
+            ctx.moveTo(toX(0), toY(maxP));
+            ctx.lineTo(toX(maxQ), toY(0));
+            ctx.strokeStyle = "#34495e";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // 定義座標
+            const x0 = toX(0);
+            const y0 = toY(0);
+            const y_p1 = toY(p1);
+            const y_p2 = toY(p2);
+            const x_q1 = toX(q1);
+            const x_q2 = toX(q2);
+
+            // 繪製區域
+            if (p2 > p1) { // 價格上升
+                // 基礎重疊
+                ctx.fillStyle = "rgba(52, 152, 219, 0.15)";
+                ctx.fillRect(x0, y_p1, x_q2 - x0, y0 - y_p1);
+                // 增加 (綠色 - 價格效應)
+                ctx.fillStyle = "rgba(46, 204, 113, 0.6)";
+                ctx.fillRect(x0, y_p2, x_q2 - x0, y_p1 - y_p2);
+                // 減少 (紅色 - 數量效應)
+                ctx.fillStyle = "rgba(231, 76, 60, 0.6)";
+                ctx.fillRect(x_q2, y_p1, x_q1 - x_q2, y0 - y_p1);
+            } else if (p2 < p1) { // 價格下降
+                // 基礎重疊
+                ctx.fillStyle = "rgba(52, 152, 219, 0.15)";
+                ctx.fillRect(x0, y_p2, x_q1 - x0, y0 - y_p2);
+                // 增加 (綠色 - 數量效應)
+                ctx.fillStyle = "rgba(46, 204, 113, 0.6)";
+                ctx.fillRect(x_q1, y_p2, x_q2 - x_q1, y0 - y_p2);
+                // 減少 (紅色 - 價格效應)
+                ctx.fillStyle = "rgba(231, 76, 60, 0.6)";
+                ctx.fillRect(x0, y_p1, x_q1 - x0, y_p2 - y_p1);
+            } else {
+                 ctx.fillStyle = "rgba(52, 152, 219, 0.3)";
+                 ctx.fillRect(x0, y_p1, x_q1 - x0, y0 - y_p1);
+            }
+
+            // 繪製標記線與點
+            // P1/Q1 使用深藍色
+            drawAxisMarker(p1, "P1", "y", "#2980b9");
+            drawAxisMarker(q1, "Q1", "x", "#2980b9");
+            drawDashedLine(toX(0), toY(p1), toX(q1), toY(p1), "#2980b9");
+            drawDashedLine(toX(q1), toY(0), toX(q1), toY(p1), "#2980b9");
+            drawDot(toX(q1), toY(p1), "#2980b9");
+
+            // P2/Q2 使用深灰色 (若不同)
+            if (p2 !== p1) {
+                drawAxisMarker(p2, "P2", "y", "#333");
+                drawAxisMarker(q2, "Q2", "x", "#333");
+                drawDashedLine(toX(0), toY(p2), toX(q2), toY(p2), "#555");
+                drawDashedLine(toX(q2), toY(0), toX(q2), toY(p2), "#555");
+                drawDot(toX(q2), toY(p2), "#333");
+            }
+        }
+
+        function drawAxesLabels() {
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 16px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("數量 (Q)", canvas.width - paddingRight - 30, canvas.height - 10);
+            
+            ctx.save();
+            ctx.translate(20, paddingTop + height/2);
+            ctx.rotate(-Math.PI/2);
+            ctx.fillText("價格 (P)", 0, 0);
+            ctx.restore();
+
+            ctx.font = "12px Arial";
+            ctx.fillText("0", paddingLeft - 10, canvas.height - paddingBottom + 15);
+        }
+
+        function drawAxisMarker(val, text, axis, color) {
+            ctx.fillStyle = color; 
+            ctx.font = "bold 15px Arial";
+            
+            if (axis === 'y') {
+                const y = toY(val);
+                ctx.textAlign = "right";
+                ctx.fillText(text, paddingLeft - 10, y + 5);
+                ctx.beginPath(); ctx.moveTo(paddingLeft - 5, y); ctx.lineTo(paddingLeft, y); ctx.strokeStyle=color; ctx.stroke();
+            } else {
+                const x = toX(val);
+                ctx.textAlign = "center";
+                ctx.fillText(text, x, canvas.height - paddingBottom + 25);
+                ctx.beginPath(); ctx.moveTo(x, canvas.height - paddingBottom); ctx.lineTo(x, canvas.height - paddingBottom + 5); ctx.strokeStyle=color; ctx.stroke();
+            }
+        }
+
+        function drawDashedLine(x1, y1, x2, y2, color) {
+            ctx.beginPath();
+            ctx.setLineDash([4, 4]);
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function drawDot(x, y, color) {
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+        }
+
+        init();
+    </script>
+</body>
+</html>
